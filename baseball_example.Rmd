@@ -1,0 +1,225 @@
+---
+title: "baseball_linear_mixture_model_example"
+output: html_document
+toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+## Baseball example starts here
+
+The purpose of this Rmarkdown file is the following:
+- use baseball data as an example for a basic linear mixture model example
+- connect to and use SQL data
+- generate an RMarkdown file
+
+I'm using the following tutorials as references:
+
+- [A good video on linear mixed models](https://www.youtube.com/watch?v=QCqF-2E86r0)
+- [An example using dragons](https://ourcodingclub.github.io/tutorials/mixed-models/)
+- [CC-Linear-mixed-models repo] which I forked.
+
+## Connect to SQL (ignore for now)
+
+As I did with Python, I'm looking to use SQL queries in this R document. I followed
+[this support page](https://support.rstudio.com/hc/en-us/articles/214510788-Setting-up-R-to-connect-to-SQL-Server-).
+
+I also had to install ODBC drivers such as described [here](https://db.rstudio.com/best-practices/drivers/). I used the Insight environment.
+
+```{r}
+# library(odbc)
+# con <- dbConnect(odbc(),
+#                  Driver = "psqlODBC",
+#                  Server = "localhost",
+#                  Database = "baseball",
+#                  UID = "lacar")
+```
+
+
+## Baseball example ---------
+
+
+### 1. What is mixed effects modelling and why does it matter?
+
+fixed effects - the thing we're testing for
+random effects - possible groups from a nested or hierarchical structure
+
+Example :
+- influence of **nitrate** on dissolved oxygen in *multiple river basins*
+- influence of **pH** on growth rate in *multiple experimental blocks*
+key: **fixed effect**, *random effect*
+
+### Explore the data
+
+```{r}
+df_batting = read.csv("batting_stats_fromdb.csv")
+df_batting[1:5, 1:20]
+```
+
+Let's filter the data so that players who have played a lot are only considered.
+
+```{r}
+hist(df_batting$PA)
+```
+
+Keep only those with at least 100 plate appearances.
+
+```{r}
+df_batting_100 <- subset(df_batting, PA>100)
+```
+
+**Objective: Let’s say we want to know how one batting feature affects another batting feature (response variable).** But to start, we need a response variable that's normally distributed. Instead of checking histograms for all, let's use the [Shapiro-Wilk test](https://en.wikipedia.org/wiki/Shapiro%E2%80%93Wilk_test). If the p-values is less than 0.05, then we'd assume that the data is *not* normally distributed. Consider the following example of home runs.
+
+```{r}
+hist(df_batting_100$HR)  
+```
+
+
+```{r}
+shapiro.test(df_batting_100$HR)
+```
+
+The p-value confirms what we see visually. Let's look at what features across the data set may be normally distributed.
+
+```{r}
+for (feature in colnames(df_batting_100)) {
+    if (typeof(df_batting_100[, feature])=='double') {
+        res <- shapiro.test(df_batting_100[, feature])
+        if (res$p.value > 0.05) {
+            print(paste(feature, "is normal"))
+        }
+    }
+}
+```
+
+ Great. Slugging is an interesting metric. Let's make that the response variable.
+ 
+```{r}
+hist(df_batting_100$SLG)
+```
+ 
+We should standardize explanatory variables before proceeding so that they have a mean of zero (“centering”) and standard deviation of one (“scaling”). It ensures that the estimated coefficients are all on the same scale, making it easier to compare effect sizes. You can use scale() to do that:
+
+```{r}
+for (feature in colnames(df_batting_100)) {
+    if (typeof(df_batting_100[, feature])=='double') {
+      new_feature <- paste0(feature, '_scaled')
+      df_batting_100[, new_feature] <- scale(df_batting_100[, feature], center = TRUE, scale = TRUE)
+        }
+    }
+
+```
+
+### Fit all data in one analysis
+
+```{r}
+basic.lm <- lm(SLG ~ WAR_scaled, data = df_batting_100)
+summary(basic.lm)
+
+```
+
+```{r}
+library(ggplot2)  # load the package
+
+# (prelim_plot <- ggplot(df_batting_100, aes(x = WAR_scaled, y = SLG)) +
+#   geom_point() +
+#   geom_smooth(method = "lm"))
+
+B_beige <- "#CDA577"
+B_brown <- "#643E34"
+B_slate <- "#3F5B66"
+B_dkgray <- "#5A7E8E"
+B_ltgray <- "#6D949B"
+B_green <- "#01CB8B"
+B_lime <- "#D3F04A"
+
+B_colors <- c(B_beige, B_brown, B_slate, B_dkgray, B_ltgray, B_green, B_lime)
+B_colors_cat <- c(B_beige, B_green, B_brown, B_ltgray, B_slate, B_lime, B_dkgray)
+
+PlotLinregFig <- function(df) {
+  prelim_plot <- 
+    ggplot(df, aes(x = WAR_scaled, y = SLG)) + 
+     geom_point(color=B_beige) +
+     geom_smooth(method = "lm") # +
+     # scale_color_manual(values=B_colors_cat)
+  return(prelim_plot)
+}
+
+PlotLinregFig(df_batting_100)
+
+# ggplot(df_batting_100, aes(x = WAR_scaled, y = SLG)) + 
+#      geom_point(color=B_beige)
+#      geom_smooth(method = "lm")
+     # scale_color_manual(values=B_colors_cat)
+
+```
+
+Plot the residuals: the red line should be nearly flat, like the dashed grey line.
+
+```{r}
+plot(basic.lm, which = 1)  
+```
+
+
+Not great. We can also check normality again in a qqplot.
+
+```{r}
+plot(basic.lm, which = 2)
+```
+
+It's typical for the extremes to not look good, but overall this isn't bad.
+
+However, what about observation independence? Are our data independent?
+
+
+
+
+```{r}
+boxplot(testScore ~ SLG, data = dragons)  # certainly looks like something is going on here
+
+
+```
+
+
+
+
+
+```{r}
+
+```
+
+
+
+
+
+```{r}
+
+```
+
+
+
+
+
