@@ -2,10 +2,12 @@
 FROM rocker/verse
 
 ## create directories
-RUN mkdir -p /shiny_intro
+RUN mkdir -p /01_data
+RUN mkdir -p /02_code
+RUN mkdir -p /03_output
 
 ## copy files
-COPY test_libraries.R test_libraries.R
+COPY /02_code/test_libraries.R /02_code/test_libraries.R
 
 ## run the script
-CMD Rscript test_libraries.R
+# CMD Rscript test_libraries.R
